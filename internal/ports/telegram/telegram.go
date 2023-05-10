@@ -17,6 +17,19 @@ import (
 	"go.uber.org/zap"
 )
 
+const (
+	WelcomeMessage = `Welcome to the Cross Nostter bot!
+This bot allows you to post messages from your Telegram channel to the Nostr network.
+
+To start using the bot:
+1. You need to add it to your channel as an administrator (you can remove all permissions).
+2. Then, send the "/set_nsec @AteoBreaking nsec1" command to the bot with the name of your channel and Nsec as an argument
+(nsec can be exported from the application that you are using, it should start with nsec1).
+
+After that, all messages from your channel will be posted to the Nostr network under your npub.
+`
+)
+
 type FileUploader interface {
 	UploadFile(ctx context.Context, fileName string, imageURL io.Reader) (url string, err error)
 }
@@ -81,50 +94,14 @@ func (p *TelegramPort) Listen(ctx context.Context) {
 				}
 
 				if len(update.ChannelPost.Photo) > 0 {
-					photoUrl, err := p.bot.GetFileDirectURL(
-						update.ChannelPost.Photo[len(update.ChannelPost.Photo)-1].FileID,
-					)
-					if err != nil {
-						continue
-					}
-
-					resp, err := http.Get(photoUrl)
-					if err != nil {
-						continue
-					}
-
-					splittedFileName := strings.Split(photoUrl, "/")
-					if len(splittedFileName) == 0 {
-						continue
-					}
-					fileName := splittedFileName[len(splittedFileName)-1]
-
 					post.Files = append(post.Files, File{
-						Name:   fileName,
-						Reader: resp.Body,
+						FileID: update.ChannelPost.Photo[len(update.ChannelPost.Photo)-1].FileID,
 					})
 				}
 
 				if update.ChannelPost.Video != nil {
-					videoUrl, err := p.bot.GetFileDirectURL(update.ChannelPost.Video.FileID)
-					if err != nil {
-						continue
-					}
-
-					splittedFileName := strings.Split(videoUrl, "/")
-					if len(splittedFileName) == 0 {
-						continue
-					}
-					fileName := splittedFileName[len(splittedFileName)-1]
-
-					resp, err := http.Get(videoUrl)
-					if err != nil {
-						continue
-					}
-
 					post.Files = append(post.Files, File{
-						Name:   fileName,
-						Reader: resp.Body,
+						FileID: update.ChannelPost.Video.FileID,
 					})
 				}
 
@@ -143,19 +120,50 @@ func (p *TelegramPort) Listen(ctx context.Context) {
 			}
 			if update.Message != nil {
 				command := update.Message.Command()
+				if command == "start" {
+					p.bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, WelcomeMessage))
+					continue
+				}
+
 				arguments := update.Message.CommandArguments()
 				if command == "" || arguments == "" {
+					p.bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "Invalid command"))
 					continue
 				}
 
 				args := strings.Split(arguments, " ")
 
-				if command == "set_nsec" && len(args) == 2 {
-					go p.HandleSetNsecCommand(ctx, &Command{
+				if command == "set_nsec" {
+					err := p.HandleSetNsecCommand(ctx, &Command{
 						UserID:  update.Message.From.ID,
 						Command: command,
 						Args:    args,
 					})
+
+					if err != nil {
+						p.logger.Error(
+							"failed to handle set_nsec command",
+							zap.Error(err),
+							zap.Any("command", command),
+						)
+						if strings.Contains(err.Error(), "not channel owner") {
+							p.bot.Send(
+								tgbotapi.NewMessage(
+									update.Message.Chat.ID,
+									"Failed to set nsec, you are not channel owner",
+								),
+							)
+						} else {
+							p.bot.Send(
+								tgbotapi.NewMessage(
+									update.Message.Chat.ID,
+									"Failed to set nsec, command example: /set_nsec @AteoBreaking nsec1",
+								),
+							)
+						}
+					} else {
+						p.bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "Nsec successfully set"))
+					}
 				}
 			}
 			if update.MyChatMember != nil && update.MyChatMember.Chat.Type == "channel" {
@@ -189,7 +197,25 @@ func (p *TelegramPort) PublishMessage(ctx context.Context, post *Post) {
 	}
 
 	for _, f := range post.Files {
-		url, err := p.uploader.UploadFile(ctx, f.Name, f.Reader)
+		downloadUrl, err := p.bot.GetFileDirectURL(f.FileID)
+		if err != nil {
+			continue
+		}
+
+		splittedFileName := strings.Split(downloadUrl, "/")
+		if len(splittedFileName) == 0 {
+			continue
+		}
+
+		fileName := splittedFileName[len(splittedFileName)-1]
+
+		resp, err := http.Get(downloadUrl)
+		if err != nil {
+			continue
+		}
+		defer resp.Body.Close()
+
+		url, err := p.uploader.UploadFile(ctx, fileName, resp.Body)
 		if err != nil {
 			p.logger.Error("failed to upload file", zap.Error(err))
 			continue
@@ -219,50 +245,42 @@ func (p *TelegramPort) HandleChannelUpdate(ctx context.Context, channel *Channel
 	}
 }
 
-func (p *TelegramPort) HandleSetNsecCommand(ctx context.Context, command *Command) {
+func (p *TelegramPort) HandleSetNsecCommand(ctx context.Context, command *Command) error {
 	if command == nil {
-		return
+		return errors.New("command is nil")
 	}
 
-	var err error
-	defer func() {
-		if err != nil {
-			p.logger.Error("failed to handle set_nsec command", zap.Error(err), zap.Any("command", command))
-		}
-	}()
-
 	if len(command.Args) != 2 {
-		err = errors.New("invalid args")
-		return
+		return errors.New("invalid args")
 	}
 
 	channelUsername := command.Args[0]
 
-	channel, err := p.store.GetTelegramChannel(ctx, strings.ToLower(channelUsername))
+	channel, err := p.store.GetTelegramChannel(ctx, strings.TrimPrefix(strings.ToLower(channelUsername), "@"))
 	if err != nil || channel == nil {
-		return
+		return err
 	}
 
 	isOwner, err := p.IsUserChannelOwner(command.UserID, channel.TelegramID)
 	if err != nil {
-		return
+		return err
 	}
 
 	if !isOwner {
 		err = fmt.Errorf("user=%d is not channel owner", command.UserID)
-		return
+		return err
 	}
 
 	nsec := command.Args[1]
 
 	_, sk, err := nip19.Decode(nsec)
 	if err != nil {
-		return
+		return err
 	}
 
 	npub, err := nostr.GetPublicKey(sk.(string))
 	if err != nil {
-		return
+		return err
 	}
 
 	p.store.SetNostrAccount(ctx, domain.NostrAccount{
@@ -273,7 +291,7 @@ func (p *TelegramPort) HandleSetNsecCommand(ctx context.Context, command *Comman
 	})
 
 	p.logger.Info("nsec set", zap.String("username", channelUsername))
-
+	return nil
 }
 
 func (p *TelegramPort) IsUserChannelOwner(userID, channelID int64) (bool, error) {

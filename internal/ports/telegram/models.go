@@ -1,9 +1,5 @@
 package ports
 
-import (
-	"io"
-)
-
 type ChannelUpdate struct {
 	Username   string
 	Title      string
@@ -24,6 +20,5 @@ type Post struct {
 }
 
 type File struct {
-	Name   string
-	Reader io.Reader
+	FileID string
 }

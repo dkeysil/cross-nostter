@@ -28,7 +28,7 @@ func RunApplication(cfg config.Config) {
 		logger.Fatal("error while creating uplink client", zap.Error(err))
 	}
 
-	db, err := sqlx.Connect("sqlite3", "crossnostter.db")
+	db, err := sqlx.Connect("sqlite3", "db/crossnostter.db")
 	if err != nil {
 		logger.Fatal("error while conntecting to the database", zap.Error(err))
 	}

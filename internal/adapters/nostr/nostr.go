@@ -27,7 +27,6 @@ func NewNostrAdapter(ctx context.Context, logger *zap.Logger, relays []string) *
 	for _, relay := range relays {
 		connectCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
-
 		relayConnection, err := nostr.RelayConnect(connectCtx, relay)
 		if err != nil {
 			logger.Error("failed to connect to relay", zap.Error(err), zap.String("relay", relay))
@@ -47,6 +46,7 @@ func (a *NostrAdapter) Publish(ctx context.Context, nsec string, text string) er
 		Kind:      1,
 		Content:   text,
 		CreatedAt: nostr.Now(),
+		Tags:      []nostr.Tag{},
 	}
 
 	_, sk, err := nip19.Decode(nsec)
@@ -67,12 +67,15 @@ func (a *NostrAdapter) Publish(ctx context.Context, nsec string, text string) er
 		publishCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
 
-		_, err := relay.Publish(publishCtx, event)
+		status, err := relay.Publish(publishCtx, event)
 		if err != nil {
+			a.Logger.Error("failed to publish event", zap.Error(err), zap.String("relay", relay.URL))
 			go a.reconnect(ctx, relay.URL)
 			continue
 		}
-		publishedTo = append(publishedTo, relay.URL)
+		if status == nostr.PublishStatusSucceeded {
+			publishedTo = append(publishedTo, relay.URL)
+		}
 	}
 	a.Logger.Info("published event", zap.Strings("relay", publishedTo), zap.String("event_pubkey", event.PubKey))
 
@@ -87,6 +90,9 @@ func (a *NostrAdapter) reconnect(ctx context.Context, relay string) {
 		default:
 			connectCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 			defer cancel()
+
+			r := a.Relays[relay]
+			r.Close()
 
 			relayConnection, err := nostr.RelayConnect(connectCtx, relay)
 			if err != nil {

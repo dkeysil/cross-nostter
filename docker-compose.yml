@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  cross-nostter:
+    build: .
+    volumes:
+      - myvolume:/app/db
+    env_file:
+      - .env
+
+volumes:
+  myvolume:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ./database
