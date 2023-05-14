@@ -7,7 +7,7 @@ require (
 	github.com/jmoiron/sqlx v1.3.5
 	github.com/kelseyhightower/envconfig v1.4.0
 	github.com/mattn/go-sqlite3 v1.14.16
-	github.com/nbd-wtf/go-nostr v0.18.1
+	github.com/nbd-wtf/go-nostr v0.18.3
 	github.com/pressly/goose/v3 v3.11.0
 	go.uber.org/zap v1.24.0
 	storj.io/common v0.0.0-20221123115229-fed3e6651b63
@@ -41,7 +41,7 @@ require (
 	go.uber.org/atomic v1.11.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	golang.org/x/crypto v0.8.0 // indirect
-	golang.org/x/exp v0.0.0-20230425010034-47ecfdc1ba53 // indirect
+	golang.org/x/exp v0.0.0-20230510235704-dd950f8aeaea // indirect
 	golang.org/x/sync v0.0.0-20220819030929-7fc1605a5dde // indirect
 	golang.org/x/sys v0.8.0 // indirect
 	storj.io/drpc v0.0.32 // indirect
