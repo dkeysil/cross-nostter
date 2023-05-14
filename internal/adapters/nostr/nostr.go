@@ -92,7 +92,9 @@ func (a *NostrAdapter) reconnect(ctx context.Context, relay string) {
 			defer cancel()
 
 			r := a.Relays[relay]
-			r.Close()
+			if r != nil {
+				r.Close()
+			}
 
 			relayConnection, err := nostr.RelayConnect(connectCtx, relay)
 			if err != nil {
